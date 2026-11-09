@@ -14,6 +14,8 @@ The dashboard runs in preview mode with clearly labelled simulated readings when
 
 For local hardware testing, run `npm run dev` and open `http://localhost:3000`. The ESP32 sends readings directly to the Supabase Edge Function, so the local dashboard can read the same database without waiting for an Azure deployment. Sign in with a patient account and refresh the dashboard after the device uploads a reading. Keep Wi-Fi credentials and the device token in the ignored firmware `secrets.h` file.
 
+With the ESP32 plugged in over USB, run `.\scripts\setup-device.ps1` in PowerShell to save Wi-Fi settings locally, provision the selected patient account in Supabase, compile, and upload the firmware. It asks for a 2.4 GHz Wi-Fi SSID, hides the password while typing, and asks for the patient UUID from Supabase Authentication > Users. After upload, open the printed serial-monitor command and wait at least 60 seconds for an ingestion response.
+
 ## Supabase
 
 The linked project is configured through the Supabase CLI. Apply the database migration with:
