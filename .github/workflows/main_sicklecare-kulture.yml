@@ -32,7 +32,7 @@ jobs:
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         NEXT_PUBLIC_APP_URL: ${{ vars.NEXT_PUBLIC_APP_URL }}
       run: |
-        npm ci
+        npm install --include=optional
         npm run build
         npm run test --if-present
         npm prune --omit=dev
