@@ -12,6 +12,8 @@ npm run dev
 
 The dashboard runs in preview mode with clearly labelled simulated readings when Supabase values are not configured. Add the public project URL and anon key to `.env.local` to enable account sign-in and persisted patient data.
 
+For local hardware testing, run `npm run dev` and open `http://localhost:3000`. The ESP32 sends readings directly to the Supabase Edge Function, so the local dashboard can read the same database without waiting for an Azure deployment. Sign in with a patient account and refresh the dashboard after the device uploads a reading. Keep Wi-Fi credentials and the device token in the ignored firmware `secrets.h` file.
+
 ## Supabase
 
 The linked project is configured through the Supabase CLI. Apply the database migration with:
