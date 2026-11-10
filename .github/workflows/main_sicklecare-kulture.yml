@@ -71,6 +71,9 @@ jobs:
       with:
         app-name: 'sicklecare-kulture'
         package: ./release.zip
+        type: ZIP
+        clean: true
+        restart: true
         startup-command: 'PORT=${PORT:-8080} HOSTNAME=0.0.0.0 node server.js'
 
     - name: Configure Node runtime and restart Azure Web App
