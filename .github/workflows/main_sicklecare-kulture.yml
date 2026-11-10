@@ -35,6 +35,10 @@ jobs:
         npm install --include=optional
         npm run build
         npm run test --if-present
+        if ! grep -Eq '[.]flex[{][^}]*display:flex' .next/static/css/*.css; then
+          echo "Production CSS is missing the expected Tailwind utility classes."
+          exit 1
+        fi
         npm prune --omit=dev
         mkdir deploy
         cp -a .next node_modules package.json next.config.ts public deploy/
@@ -51,3 +55,26 @@ jobs:
       with:
         app-name: 'sicklecare-kulture'
         package: ./deploy
+
+    - name: Restart Azure Web App
+      run: |
+        resource_group="$(az webapp show --name sicklecare-kulture --query resourceGroup --output tsv)"
+        if [ -z "$resource_group" ]; then
+          echo "Could not find the Azure Web App resource group."
+          exit 1
+        fi
+        az webapp restart --name sicklecare-kulture --resource-group "$resource_group"
+
+    - name: Verify deployed Tailwind CSS
+      run: |
+        for attempt in $(seq 1 12); do
+          css_path="$(curl -fsSL 'https://sicklecare-kulture.azurewebsites.net/' | grep -oE '/_next/static/css/[^" ]+\.css' | head -n 1 || true)"
+          if [ -n "$css_path" ] && curl -fsSL "https://sicklecare-kulture.azurewebsites.net${css_path}?verify=${GITHUB_SHA}" | grep -Eq '[.]flex[{][^}]*display:flex'; then
+            echo "Azure is serving the Tailwind CSS bundle: ${css_path}"
+            exit 0
+          fi
+          echo "Waiting for the deployed CSS bundle (attempt ${attempt}/12)..."
+          sleep 5
+        done
+        echo "Azure is still serving CSS without the expected Tailwind utilities."
+        exit 1
