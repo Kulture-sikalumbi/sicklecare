@@ -58,7 +58,7 @@ jobs:
 
     - name: Restart Azure Web App
       run: |
-        resource_group="$(az webapp show --name sicklecare-kulture --query resourceGroup --output tsv)"
+        resource_group="$(az webapp list --query "[?name=='sicklecare-kulture'] | [0].resourceGroup" --output tsv)"
         if [ -z "$resource_group" ]; then
           echo "Could not find the Azure Web App resource group."
           exit 1
