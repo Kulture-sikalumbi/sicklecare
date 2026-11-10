@@ -22,3 +22,9 @@ test('ingestion contract validates and preserves the agreed payload', () => {
   assert.match(ingestion, /is_simulated: false/);
   assert.match(ingestion, /Date\.now\(\) \+ 5 \* 60 \* 1000/);
 });
+
+test('patient accounts default to automatic clinician sharing', () => {
+  const sharing = fs.readFileSync(path.join(root, 'supabase', 'migrations', '003_automatic_vitals_sharing.sql'), 'utf8');
+  assert.match(sharing, /share_vitals_with_clinicians boolean not null default true/i);
+  assert.match(sharing, /coalesce\(new\.raw_user_meta_data ->> 'share_vitals_with_clinicians' = 'true', true\)/i);
+});

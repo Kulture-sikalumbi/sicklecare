@@ -24,11 +24,11 @@ Create or sign in to a patient account at `http://localhost:3000/login`. In Supa
 
 Run `scripts/setup-device.ps1` to provision the device and upload the firmware. On a fresh device with no saved Wi-Fi, connect a phone to the `SickleCare-xxxx` network shown on the OLED. Enter the setup key shown on the OLED, then open `http://192.168.4.1` and submit the location's 2.4 GHz Wi-Fi name and password. The device stores the details in ESP32 NVS, restarts, and reconnects automatically. To change networks later, power off the board, hold its BOOT button while powering it on, and repeat the setup steps. If saved Wi-Fi cannot be reached, it opens setup mode again. Existing builds with Wi-Fi values in local `secrets.h` import those values into NVS once for compatibility; new devices can leave the Wi-Fi macros empty.
 
-The function expects the agreed JSON payload and `x-device-token`. Sequence state and Wi-Fi credentials are kept in ESP32 NVS. The device attempts a reading every 60 seconds when HR, SpO2, temperature, Wi-Fi, and UTC time are valid. Confirm successful uploads in Serial Monitor with `Ingestion response: HTTP 200`.
+The function expects the agreed JSON payload and `x-device-token`. Sequence state and Wi-Fi credentials are kept in ESP32 NVS. The device attempts an upload every 15 seconds when HR, SpO2, Wi-Fi, and UTC time are valid; skin temperature is included when its sensor is available and otherwise stored as null. Confirm successful uploads in Serial Monitor with `Ingestion response: HTTP 200`.
 
 ## Hardware notes
 
 - I2C SDA/SCL: GPIO21/GPIO22.
 - The DS18B20 wire pin is auto-detected across GPIO4, 16, 17, 18, 19, 23, 25, 26, 27, 32, and 33.
 - DS18B20 is the component shown in the current diagnostic screen; it differs from the MAX30205 listed in the proposal.
-- The demo attempts an upload every 60 seconds after boot when fresh pulse estimates, temperature, Wi-Fi, valid UTC time, and credentials are available.
+- The device attempts an upload every 15 seconds after boot when fresh HR and SpO2 estimates, Wi-Fi, valid UTC time, and device credentials are available; temperature is optional.

@@ -13,7 +13,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [shareVitalsOnSignup, setShareVitalsOnSignup] = useState(false);
+  const [shareVitalsOnSignup, setShareVitalsOnSignup] = useState(true);
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const router = useRouter();
@@ -67,7 +67,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit} className="mt-7 space-y-4">
             <label className="block text-sm font-semibold text-slate-700">Email<input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 font-normal text-slate-900 outline-none focus:border-[#55a99a] focus:bg-white focus:ring-4 focus:ring-[#d9f0eb]" placeholder="you@example.com" /></label>
             <label className="block text-sm font-semibold text-slate-700">Password<input required minLength={6} type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="mt-2 h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 font-normal text-slate-900 outline-none focus:border-[#55a99a] focus:bg-white focus:ring-4 focus:ring-[#d9f0eb]" placeholder="At least 6 characters" /></label>
-            {mode === 'signup' && <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#c9e3de] bg-[#f1faf7] p-4 text-sm leading-6 text-slate-600"><input type="checkbox" checked={shareVitalsOnSignup} onChange={(event) => setShareVitalsOnSignup(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-[#176254]" /><span><strong className="text-slate-800">Automatically share my wearable vitals with SickleCare clinicians.</strong><br />Clinicians provisioned for this project can see your profile name or email and wearable readings. Symptoms remain private. You can turn sharing off at any time.</span></label>}
+            {mode === 'signup' && <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#c9e3de] bg-[#f1faf7] p-4 text-sm leading-6 text-slate-600"><input type="checkbox" checked={shareVitalsOnSignup} onChange={(event) => setShareVitalsOnSignup(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-[#176254]" /><span><strong className="text-slate-800">Automatically share my wearable vitals with SickleCare clinicians.</strong><br />This is enabled by default so your care team can monitor your readings as soon as you create the account. Symptoms remain private. You can turn sharing off at any time.</span></label>}
             <button disabled={busy} type="submit" className="flex h-12 w-full items-center justify-center rounded-xl bg-[#123f4a] text-sm font-bold text-white transition hover:bg-[#0b3038] disabled:cursor-wait disabled:opacity-60">{busy ? 'Working…' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
           </form>
           <p aria-live="polite" className="mt-4 min-h-5 text-center text-sm text-[#176254]">{message}</p>

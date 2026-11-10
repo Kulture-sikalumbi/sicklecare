@@ -26,7 +26,7 @@ supabase db push --remote
 
 The schema includes profiles, devices, server-only device credentials, readings, symptom logs, clinician sharing, indexes, ownership constraints, and RLS. Authenticated patients can read and manage their own profile, device, and symptom data. Readings are read-only to clients and are written by the ingestion function using the service role.
 
-The clinician portal uses consent-based patient sharing. New patients can opt in during signup to automatically share their profile name or email and wearable readings with provisioned clinician accounts. Symptoms remain private. Existing accounts stay private until the patient turns on **Share my vitals automatically** in the dashboard. Patients can turn automatic sharing off at any time. One-time codes remain available to share with a specific clinician. Apply migrations with `supabase db push --remote`, then provision each clinician account from the Supabase SQL editor after they have signed up:
+The clinician portal uses consent-based patient sharing. New patient accounts automatically share their profile name or email and wearable readings with provisioned clinician accounts, unless they explicitly turn it off. Symptoms remain private. Patients can disable automatic sharing at any time from the dashboard. One-time codes remain available to share with a specific clinician. Apply migrations with `supabase db push --remote`, then provision each clinician account from the Supabase SQL editor after they have signed up:
 
 ```sql
 insert into public.clinicians (user_id, display_name)

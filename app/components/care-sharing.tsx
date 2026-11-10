@@ -26,7 +26,7 @@ function formatExpiry(value: string) {
 
 export default function CareSharing({ enabled }: { enabled: boolean }) {
   const [shares, setShares] = useState<Share[]>([]);
-  const [autoSharing, setAutoSharing] = useState(false);
+  const [autoSharing, setAutoSharing] = useState(true);
   const [shareCode, setShareCode] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -43,7 +43,7 @@ export default function CareSharing({ enabled }: { enabled: boolean }) {
       setMessage('Sharing settings are unavailable until the latest database migration is applied.');
       return;
     }
-    setAutoSharing(Boolean(profileResult.data?.share_vitals_with_clinicians));
+    setAutoSharing(Boolean(profileResult.data?.share_vitals_with_clinicians ?? true));
     setShares((shareResult.data ?? []) as Share[]);
   }, [enabled]);
 
@@ -138,7 +138,7 @@ export default function CareSharing({ enabled }: { enabled: boolean }) {
       </div>
 
       {!enabled ? (
-        <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-500">Sign in to manage clinician access. Your readings are not shared by default.</p>
+        <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-500">Sign in to manage clinician access. Your readings are shared automatically unless you turn sharing off.</p>
       ) : (
         <>
           <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">

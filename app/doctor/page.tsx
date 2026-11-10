@@ -98,7 +98,7 @@ export default async function DoctorPage() {
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <Metric label="Heart rate" value={`${patient.reading.hr_bpm}`} unit="bpm" />
                 <Metric label="SpO₂ estimate" value={`${patient.reading.spo2_pct}`} unit="%" />
-                <Metric label="Skin temperature" value={patient.reading.skin_temp_c === null ? '—' : patient.reading.skin_temp_c.toFixed(1)} unit="°C" />
+                <Metric label="Skin temperature" value={patient.reading.skin_temp_c === null ? '—' : patient.reading.skin_temp_c.toFixed(1)} unit={patient.reading.skin_temp_c === null ? "" : "°C"} />
               </div>
             </> : <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">This patient has not shared a wearable reading yet.</p>}
           </article>)}

@@ -1,7 +1,7 @@
--- A patient may opt in to automatic sharing during signup or later from the
--- patient dashboard. Only provisioned clinicians can see opted-in patients.
+-- New patient accounts share vitals automatically unless they explicitly opt out.
+-- Only provisioned clinicians can see opted-in patients.
 alter table public.profiles
-  add column if not exists share_vitals_with_clinicians boolean not null default false,
+  add column if not exists share_vitals_with_clinicians boolean not null default true,
   add column if not exists share_vitals_consent_at timestamptz;
 
 create or replace function public.track_vitals_sharing_consent()
@@ -39,8 +39,8 @@ before insert or update
 on public.profiles
 for each row execute procedure public.track_vitals_sharing_consent();
 
--- Store the signup choice from Supabase Auth metadata. Missing consent always
--- defaults to private, including for accounts created outside this signup UI.
+-- Store the signup preference from Supabase Auth metadata. Missing consent
+-- defaults to enabled so new patient accounts are visible to provisioned clinicians.
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -48,7 +48,7 @@ begin
   values (
     new.id,
     new.email,
-    coalesce(new.raw_user_meta_data ->> 'share_vitals_with_clinicians' = 'true', false)
+    coalesce(new.raw_user_meta_data ->> 'share_vitals_with_clinicians' = 'true', true)
   )
   on conflict (id) do update set email = excluded.email;
   return new;

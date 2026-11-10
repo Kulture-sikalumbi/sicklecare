@@ -139,7 +139,7 @@ export default function Home() {
       }
       const [deviceResult, readingResult, symptomResult] = await Promise.all([
         supabase.from('devices').select('device_name, last_seen_at').order('created_at', { ascending: true }).limit(1).maybeSingle(),
-        supabase.from('readings').select('id, recorded_at, hr_bpm, spo2_pct, skin_temp_c, signal_ok, is_simulated').eq('is_simulated', false).order('recorded_at', { ascending: false }).limit(12),
+        supabase.from('readings').select('id, recorded_at, hr_bpm, spo2_pct, skin_temp_c, signal_ok, is_simulated').order('recorded_at', { ascending: false }).limit(12),
         supabase.from('symptom_logs').select('id, symptom, severity, notes, recorded_at').order('recorded_at', { ascending: false }).limit(8),
       ]);
 
@@ -148,7 +148,7 @@ export default function Home() {
       const fetchedReadings = (readingResult.data ?? []).map((row: { id: string; recorded_at: string; hr_bpm: number; spo2_pct: number; skin_temp_c: number | null; signal_ok: boolean; is_simulated: boolean }) => ({
           id: row.id,
           recordedAt: row.recorded_at,
-          timeLabel: formatTime(row.recorded_at),
+          timeLabel: row.is_simulated ? `${formatTime(row.recorded_at)} (simulated)` : formatTime(row.recorded_at),
           hr: row.hr_bpm,
           spo2: row.spo2_pct,
           temp: row.skin_temp_c,
@@ -157,7 +157,7 @@ export default function Home() {
         }));
       setReadings(fetchedReadings);
       setReadingsError(readingResult.error ? 'Could not load real readings. Try refreshing this page.' : '');
-      const lastDataTime = deviceResult.data?.last_seen_at || fetchedReadings[0]?.recordedAt;
+      const lastDataTime = deviceResult.data?.last_seen_at || fetchedReadings.find((reading) => !reading.isSimulated)?.recordedAt;
       if (lastDataTime) {
         setLastSeen(formatTime(lastDataTime));
         setDeviceSeen(true);
@@ -218,13 +218,19 @@ export default function Home() {
       ? 'Readings unavailable'
       : hasDeviceReadings
         ? hasSimulatedReadings ? 'Device and simulated readings' : 'Live device readings'
+        : hasSimulatedReadings
+          ? 'Saved simulated readings'
         : readingsLoading || dataMode === 'loading' ? 'Checking live data' : 'Waiting for live readings';
   const readingDisclaimer = dataMode === 'preview'
     ? 'This prototype is informational only. Sample readings are simulated, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.'
     : readingsError
       ? `${readingsError} No sample values are shown until real data can be confirmed.`
+      : hasDeviceReadings && hasSimulatedReadings
+        ? 'This prototype is informational only. The list includes sensor estimates and entries marked simulated; neither is clinically validated, and neither diagnoses, predicts crises, or replaces advice from a qualified health professional.'
       : hasDeviceReadings
         ? 'This prototype is informational only. Sensor readings are estimates, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.'
+        : hasSimulatedReadings
+          ? 'These readings are saved in your account but marked simulated. They are not live sensor readings, are not clinically validated, and do not replace advice from a qualified health professional.'
         : readingsLoading
           ? 'Loading readings from Supabase. Demo values are hidden while your account is connected.'
           : 'No real device readings are linked to this account yet. If you are a clinician, open the clinician portal; otherwise sign in with the patient account assigned to the wearable.';
@@ -302,11 +308,11 @@ export default function Home() {
 
         <section className="mb-8 rounded-3xl border border-[#c9e3de] bg-[#eaf7f4] p-5 sm:p-6"><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="flex gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-[#176254] shadow-sm"><Icon name="shield" className="h-5 w-5" /></span><div><p className="font-semibold text-[#123f4a]">Your information, at a glance</p><p className="mt-1 max-w-3xl text-sm leading-6 text-[#3c7069]">{readingDisclaimer}</p></div></div><span className="shrink-0 self-start rounded-full bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-[#176254]">{readingSourceLabel}</span></div></section>
 
-        <section className="mb-8 grid gap-4 md:grid-cols-3"><MetricCard label="Heart rate" value={`${latest.hr}`} unit="bpm" helper="Latest wearable reading" tone="rose" icon="heart" /><MetricCard label="SpO₂ approximation" value={`${latest.spo2}`} unit="%" helper="Low-cost sensor estimate" tone="blue" icon="signal" /><MetricCard label="Peripheral skin temperature" value={latestTemperature} unit="°C" helper="Informational, not core temperature" tone="amber" icon="thermometer" /></section>
+        <section className="mb-8 grid gap-4 md:grid-cols-3"><MetricCard label="Heart rate" value={`${latest.hr}`} unit="bpm" helper={latest.isSimulated ? 'Saved simulated reading' : 'Latest wearable reading'} tone="rose" icon="heart" /><MetricCard label="SpO₂ approximation" value={`${latest.spo2}`} unit="%" helper={latest.isSimulated ? 'Saved simulated reading' : 'Low-cost sensor estimate'} tone="blue" icon="signal" /><MetricCard label="Peripheral skin temperature" value={latestTemperature} unit="°C" helper={latest.isSimulated ? 'Saved simulated reading' : 'Informational, not core temperature'} tone="amber" icon="thermometer" /></section>
 
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1.65fr)_minmax(330px,0.9fr)]">
           <div className="space-y-6">
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_45px_rgba(15,23,42,0.04)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#eaf7f4] text-[#176254]"><Icon name="heart" className="h-4 w-4" /></span><h2 className="text-lg font-bold text-slate-900">Recent readings</h2></div><p className="mt-2 text-sm text-slate-500">A quick view of the last readings received from your device.</p></div><span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">{readings.length} readings shown</span></div>
+            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_45px_rgba(15,23,42,0.04)] sm:p-7"><div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start"><div><div className="flex items-center gap-2"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#eaf7f4] text-[#176254]"><Icon name="heart" className="h-4 w-4" /></span><h2 className="text-lg font-bold text-slate-900">Recent readings</h2></div><p className="mt-2 text-sm text-slate-500">A quick view of recent readings saved to your account.</p></div><span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">{readings.length} readings shown</span></div>
               <div className="mt-7 rounded-2xl bg-[#f8fafc] p-4 sm:p-5"><div className="flex items-center justify-between text-xs font-semibold text-slate-400"><span>Heart rate · bpm</span><span>Last 5 quality readings</span></div><div className="mt-5 flex h-36 items-end gap-2 sm:gap-4">{qualityReadings.slice(0, 5).reverse().map((reading, index) => <div className="flex flex-1 flex-col items-center gap-2" key={reading.id}><div className="relative flex h-28 w-full items-end justify-center"><div className="w-full max-w-10 rounded-t-xl bg-gradient-to-t from-[#176254] to-[#7fc8b8] transition hover:from-[#123f4a]" style={{ height: `${Math.max(28, (reading.hr / chartMaximum) * 100)}%` }} /></div><span className="text-[11px] font-semibold text-slate-400">{index === 4 ? 'Now' : reading.timeLabel}</span></div>)}</div></div>
               <div className="mt-6 overflow-hidden rounded-2xl border border-slate-100"><div className="hidden grid-cols-[1.2fr_1fr_1fr_1fr_0.9fr] gap-4 bg-slate-50 px-4 py-3 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:grid"><span>Time</span><span>Heart rate</span><span>SpO₂</span><span>Skin temp.</span><span>Quality</span></div>{readings.slice(0, 4).map((reading) => <div className="grid grid-cols-2 gap-y-2 border-t border-slate-100 px-4 py-3.5 text-sm sm:grid-cols-[1.2fr_1fr_1fr_1fr_0.9fr] sm:gap-4" key={reading.id}><span className="font-semibold text-slate-700"><span className="text-xs font-normal text-slate-400 sm:hidden">Time · </span>{reading.timeLabel}</span><span className="text-slate-600"><span className="text-xs font-normal text-slate-400 sm:hidden">HR · </span>{reading.hr} bpm</span><span className="text-slate-600"><span className="text-xs font-normal text-slate-400 sm:hidden">SpO₂ · </span>{reading.spo2}%</span><span className="text-slate-600"><span className="text-xs font-normal text-slate-400 sm:hidden">Temp · </span>{formatTemperature(reading.temp)}</span><span className={`col-span-2 flex items-center gap-1.5 text-xs font-semibold sm:col-span-1 ${reading.signalOk ? 'text-emerald-600' : 'text-amber-600'}`}><span className={`h-1.5 w-1.5 rounded-full ${reading.signalOk ? 'bg-emerald-500' : 'bg-amber-500'}`} />{reading.signalOk ? 'Good signal' : 'Low quality'}</span></div>)}</div><p className="mt-4 text-xs leading-5 text-slate-400">Low-quality readings are stored for transparency and are excluded from this visual summary. No thresholds or alerts are applied.</p>
             </section>

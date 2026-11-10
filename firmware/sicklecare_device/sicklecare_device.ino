@@ -22,7 +22,7 @@
 constexpr uint8_t I2C_SDA_PIN = 21;
 constexpr uint8_t I2C_SCL_PIN = 22;
 constexpr uint8_t OLED_ADDRESS = 0x3C;
-constexpr uint32_t SAMPLE_INTERVAL_MS = 60UL * 1000UL;
+constexpr uint32_t SAMPLE_INTERVAL_MS = 15UL * 1000UL;
 constexpr uint32_t SPO2_SAMPLE_COUNT = 100;
 
 Adafruit_SH1106G display(128, 64, &Wire, -1);
