@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <time.h>
 #include <Preferences.h>
 #include <Adafruit_GFX.h>
@@ -29,6 +31,10 @@ MAX30105 max30102;
 OneWire *oneWire = nullptr;
 DallasTemperature *temperatureSensor = nullptr;
 Preferences preferences;
+WebServer setupWebServer(80);
+DNSServer setupDnsServer;
+String configuredWifiSsid;
+String configuredWifiPassword;
 
 uint32_t irBuffer[SPO2_SAMPLE_COUNT];
 uint32_t redBuffer[SPO2_SAMPLE_COUNT];
@@ -70,8 +76,7 @@ void showStatus(const char *line1, const char *line2 = "", const char *line3 = "
 }
 
 bool hasDeviceCredentials() {
-  return strlen(DEVICE_ID) == 36 && strlen(DEVICE_TOKEN) >= 32 &&
-         strlen(WIFI_SSID) > 0 && strlen(WIFI_PASSWORD) > 0;
+  return strlen(DEVICE_ID) == 36 && strlen(DEVICE_TOKEN) >= 32;
 }
 
 bool getIsoUtc(char *output, size_t outputSize) {
@@ -82,8 +87,91 @@ bool getIsoUtc(char *output, size_t outputSize) {
   return strftime(output, outputSize, "%Y-%m-%dT%H:%M:%SZ", &utc) > 0;
 }
 
-void connectWifi() {
-  if (strlen(WIFI_SSID) == 0) return;
+String makeSetupPassword() {
+  const char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  String result;
+  result.reserve(12);
+  for (uint8_t i = 0; i < 12; i++) {
+    result += alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  }
+  return result;
+}
+
+void startWifiSetupPortal() {
+  const String deviceSuffix = String(DEVICE_ID).substring(32, 36);
+  const String accessPointName = "SickleCare-" + deviceSuffix;
+  String accessPointPassword = preferences.getString("setup_key", "");
+  if (accessPointPassword.length() < 8) {
+    accessPointPassword = makeSetupPassword();
+    preferences.putString("setup_key", accessPointPassword);
+  }
+
+  WiFi.mode(WIFI_AP);
+  const IPAddress portalIp(192, 168, 4, 1);
+  WiFi.softAPConfig(portalIp, portalIp, IPAddress(255, 255, 255, 0));
+  if (!WiFi.softAP(accessPointName.c_str(), accessPointPassword.c_str())) {
+    Serial.println("Could not start Wi-Fi setup access point; retrying in 5 seconds.");
+    delay(5000);
+    ESP.restart();
+  }
+
+  setupWebServer.on("/", HTTP_GET, []() {
+    setupWebServer.send(200, "text/html",
+      "<!doctype html><html><head><meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<title>SickleCare Wi-Fi setup</title><style>body{font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem;color:#123f4a}"
+      "label{display:block;margin:1rem 0 .3rem}input,button{box-sizing:border-box;width:100%;padding:.8rem;border:1px solid #b8cfcb;border-radius:.6rem;font:inherit}"
+      "button{margin-top:1.3rem;background:#123f4a;color:white;font-weight:700}</style></head><body>"
+      "<h1>Connect SickleCare to Wi-Fi</h1><p>Enter the 2.4 GHz Wi-Fi details for this location. The device will save them and reconnect automatically.</p>"
+      "<form method='post' action='/save'><label for='ssid'>Wi-Fi name</label><input id='ssid' name='ssid' maxlength='32' required autocomplete='off'>"
+      "<label for='password'>Wi-Fi password</label><input id='password' name='password' type='password' maxlength='63' autocomplete='new-password'>"
+      "<button type='submit'>Save and connect</button></form></body></html>");
+  });
+  setupWebServer.on("/save", HTTP_POST, []() {
+    const String ssid = setupWebServer.arg("ssid");
+    const String password = setupWebServer.arg("password");
+    if (ssid.isEmpty() || ssid.length() > 32 || password.length() > 63) {
+      setupWebServer.send(400, "text/plain", "Enter a valid Wi-Fi name and password, then try again.");
+      return;
+    }
+    preferences.putString("wifi_ssid", ssid);
+    preferences.putString("wifi_password", password);
+    setupWebServer.send(200, "text/html",
+      "<!doctype html><html><meta name='viewport' content='width=device-width,initial-scale=1'>"
+      "<body style='font:16px system-ui;max-width:32rem;margin:3rem auto;padding:0 1rem;color:#123f4a'>"
+      "<h1>Wi-Fi details saved</h1><p>SickleCare is restarting and connecting to the network. You can close this page.</p></body></html>");
+    delay(1200);
+    ESP.restart();
+  });
+  setupWebServer.onNotFound([]() {
+    setupWebServer.sendHeader("Location", "http://192.168.4.1/", true);
+    setupWebServer.send(302, "text/plain", "Open the SickleCare setup page.");
+  });
+  setupWebServer.begin();
+  setupDnsServer.start(53, "*", portalIp);
+
+  Serial.println("Wi-Fi setup mode is active.");
+  Serial.printf("Connect to %s with setup key %s, then open http://192.168.4.1\n",
+                accessPointName.c_str(), accessPointPassword.c_str());
+  showStatus("Wi-Fi setup", accessPointName.c_str(), accessPointPassword.c_str());
+  while (true) {
+    setupDnsServer.processNextRequest();
+    setupWebServer.handleClient();
+    delay(2);
+  }
+}
+
+void connectWifi(bool forceSetup = false) {
+  configuredWifiSsid = preferences.getString("wifi_ssid", "");
+  configuredWifiPassword = preferences.getString("wifi_password", "");
+  if (configuredWifiSsid.isEmpty() && strlen(WIFI_SSID) > 0 && strlen(WIFI_PASSWORD) > 0) {
+    configuredWifiSsid = WIFI_SSID;
+    configuredWifiPassword = WIFI_PASSWORD;
+    preferences.putString("wifi_ssid", configuredWifiSsid);
+    preferences.putString("wifi_password", configuredWifiPassword);
+    Serial.println("Imported the existing Wi-Fi settings into device storage.");
+  }
+  if (forceSetup || configuredWifiSsid.isEmpty()) startWifiSetupPortal();
+
   WiFi.mode(WIFI_STA);
   WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info) {
     if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
@@ -98,7 +186,7 @@ void connectWifi() {
   int32_t targetRssi = -127;
   int32_t targetChannel = 0;
   for (int16_t i = 0; i < networkCount; i++) {
-    if (WiFi.SSID(i) == WIFI_SSID) {
+    if (WiFi.SSID(i) == configuredWifiSsid) {
       targetVisible = true;
       targetRssi = WiFi.RSSI(i);
       targetChannel = WiFi.channel(i);
@@ -110,7 +198,7 @@ void connectWifi() {
                 static_cast<long>(targetChannel), static_cast<long>(targetRssi));
   WiFi.scanDelete();
 
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(configuredWifiSsid.c_str(), configuredWifiPassword.c_str());
   Serial.print("Connecting to Wi-Fi");
   const uint32_t started = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - started < 20000) {
@@ -123,7 +211,8 @@ void connectWifi() {
     Serial.println(WiFi.localIP());
     configTime(0, 0, "pool.ntp.org", "time.google.com");
   } else {
-    Serial.println("Wi-Fi not connected; sensor display continues.");
+    Serial.println("Saved Wi-Fi could not be reached; starting setup portal.");
+    startWifiSetupPortal();
   }
   lastWifiRetryMs = millis();
 }
@@ -268,7 +357,7 @@ void drawDashboard() {
 
 bool postReading(float temperatureC) {
   if (!hasDeviceCredentials() || WiFi.status() != WL_CONNECTED ||
-      !heartRateValid || !spo2Valid || !isfinite(temperatureC)) {
+      !heartRateValid || !spo2Valid) {
     return false;
   }
 
@@ -292,11 +381,17 @@ bool postReading(float temperatureC) {
 
   const uint32_t nextSequence = sequenceNumber + 1;
   char payload[320];
+  char temperatureJson[16];
+  if (isfinite(temperatureC)) {
+    snprintf(temperatureJson, sizeof(temperatureJson), "%.2f", temperatureC);
+  } else {
+    strcpy(temperatureJson, "null");
+  }
   snprintf(payload, sizeof(payload),
-           "{\"device_id\":\"%s\",\"seq\":%lu,\"recorded_at\":\"%s\",\"hr_bpm\":%ld,\"spo2_pct\":%ld,\"skin_temp_c\":%.2f,\"signal_ok\":%s}",
+           "{\"device_id\":\"%s\",\"seq\":%lu,\"recorded_at\":\"%s\",\"hr_bpm\":%ld,\"spo2_pct\":%ld,\"skin_temp_c\":%s,\"signal_ok\":%s}",
            DEVICE_ID, static_cast<unsigned long>(nextSequence), recordedAt,
            static_cast<long>(heartRateBpm), static_cast<long>(spo2Percent),
-           temperatureC, signalOk ? "true" : "false");
+           temperatureJson, signalOk ? "true" : "false");
 
   const int status = https.POST(reinterpret_cast<uint8_t *>(payload), strlen(payload));
   const String response = https.getString();
@@ -314,6 +409,8 @@ bool postReading(float temperatureC) {
 void setup() {
   Serial.begin(115200);
   delay(500);
+  pinMode(0, INPUT_PULLUP);
+  const bool forceWifiSetup = digitalRead(0) == LOW;
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
 
   oledReady = display.begin(OLED_ADDRESS, true);
@@ -359,7 +456,7 @@ void setup() {
                 mpuReady ? "ready" : "missing",
                 temperatureReady ? "ready" : "missing", ds18b20DataPin);
 
-  connectWifi();
+  connectWifi(forceWifiSetup);
   showStatus(pulseOximeterReady ? "Pulse sensor ready" : "Pulse sensor missing",
              temperatureReady ? "DS18B20 ready" : "DS18B20 missing",
              WiFi.status() == WL_CONNECTED ? "Wi-Fi connected" : "Wi-Fi offline");
@@ -377,11 +474,11 @@ void loop() {
   }
 
   if (now - lastUploadMs >= SAMPLE_INTERVAL_MS) {
-    if (isfinite(peripheralTempC)) postReading(peripheralTempC);
+    postReading(peripheralTempC);
     lastUploadMs = now;
   }
 
-  if (WiFi.status() != WL_CONNECTED && strlen(WIFI_SSID) > 0 &&
+  if (WiFi.status() != WL_CONNECTED && !configuredWifiSsid.isEmpty() &&
       now - lastWifiRetryMs >= 15000) {
     lastWifiRetryMs = now;
     Serial.println("Retrying Wi-Fi connection.");

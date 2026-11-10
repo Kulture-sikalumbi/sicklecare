@@ -17,7 +17,7 @@ type ReadingPayload = {
   recorded_at: string;
   hr_bpm: number;
   spo2_pct: number;
-  skin_temp_c: number;
+  skin_temp_c: number | null;
   signal_ok: boolean;
 };
 
@@ -44,7 +44,8 @@ function validate(payload: unknown): payload is ReadingPayload {
     Number.isFinite(recordedAt) && recordedAt <= Date.now() + 5 * 60 * 1000 &&
     typeof reading.hr_bpm === "number" && reading.hr_bpm >= 0 && reading.hr_bpm <= 300 &&
     typeof reading.spo2_pct === "number" && reading.spo2_pct >= 0 && reading.spo2_pct <= 100 &&
-    typeof reading.skin_temp_c === "number" && reading.skin_temp_c >= 0 && reading.skin_temp_c <= 60 &&
+    (reading.skin_temp_c === null ||
+      (typeof reading.skin_temp_c === "number" && reading.skin_temp_c >= 0 && reading.skin_temp_c <= 60)) &&
     typeof reading.signal_ok === "boolean";
 }
 

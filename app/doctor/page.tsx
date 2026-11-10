@@ -3,13 +3,15 @@ import { createServerSupabaseClient } from '@/lib/supabase/server';
 import RedeemShareForm from './redeem-share-form';
 import RefreshDashboard from './refresh-dashboard';
 
+export const instant = false;
+
 type Reading = {
   id: string;
   user_id: string;
   recorded_at: string;
   hr_bpm: number;
   spo2_pct: number;
-  skin_temp_c: number;
+  skin_temp_c: number | null;
   signal_ok: boolean;
 };
 
@@ -96,7 +98,7 @@ export default async function DoctorPage() {
               <div className="mt-3 grid grid-cols-3 gap-2">
                 <Metric label="Heart rate" value={`${patient.reading.hr_bpm}`} unit="bpm" />
                 <Metric label="SpO₂ estimate" value={`${patient.reading.spo2_pct}`} unit="%" />
-                <Metric label="Skin temperature" value={`${Number(patient.reading.skin_temp_c).toFixed(1)}`} unit="°C" />
+                <Metric label="Skin temperature" value={patient.reading.skin_temp_c === null ? '—' : patient.reading.skin_temp_c.toFixed(1)} unit="°C" />
               </div>
             </> : <p className="mt-5 rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">This patient has not shared a wearable reading yet.</p>}
           </article>)}

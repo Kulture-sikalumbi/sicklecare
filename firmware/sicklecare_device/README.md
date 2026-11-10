@@ -16,15 +16,15 @@ arduino-cli monitor -p COM9 --config baudrate=115200
 
 Installed libraries: Adafruit MPU6050, Adafruit SH110X, SparkFun MAX3010x, DallasTemperature, and OneWire (plus their dependencies).
 
-## Connect to Supabase
+## Configure Wi-Fi and connect to Supabase
 
-The ignored local `secrets.h` is already prepared with this device's generated UUID and raw token. Enter only your Wi-Fi SSID and password in that file; do not paste them into chat. `secrets.h` is excluded from Git. `supabase_root_ca.h` contains the public root certificate from the Supabase TLS chain; the firmware validates HTTPS and refuses insecure TLS.
+The ignored local `secrets.h` contains this device's generated UUID and raw token. `secrets.h` is excluded from Git. `supabase_root_ca.h` contains the public root certificate from the Supabase TLS chain; the firmware validates HTTPS and refuses insecure TLS.
 
 Create or sign in to a patient account at `http://localhost:3000/login`. In Supabase Dashboard → Authentication → Users, copy that patient's **User ID** and replace `REPLACE-WITH-PATIENT-AUTH-USER-UUID` in `provision_device.sql`. Run that SQL in the Supabase SQL Editor. It creates the profile/device and stores only SHA-256(token) as `device_credentials.token_hash`. The raw token belongs only in the local secrets file / device firmware. Never use a service-role key in the firmware.
 
-After Wi-Fi and SQL provisioning are ready, compile and upload the firmware again so the board receives the Wi-Fi settings, then verify the ingestion result in Serial Monitor at 115200 baud.
+Run `scripts/setup-device.ps1` to provision the device and upload the firmware. On a fresh device with no saved Wi-Fi, connect a phone to the `SickleCare-xxxx` network shown on the OLED. Enter the setup key shown on the OLED, then open `http://192.168.4.1` and submit the location's 2.4 GHz Wi-Fi name and password. The device stores the details in ESP32 NVS, restarts, and reconnects automatically. To change networks later, power off the board, hold its BOOT button while powering it on, and repeat the setup steps. If saved Wi-Fi cannot be reached, it opens setup mode again. Existing builds with Wi-Fi values in local `secrets.h` import those values into NVS once for compatibility; new devices can leave the Wi-Fi macros empty.
 
-The function expects the agreed JSON payload and `x-device-token`. Sequence state is kept in ESP32 NVS and incremented after successful ingestion.
+The function expects the agreed JSON payload and `x-device-token`. Sequence state and Wi-Fi credentials are kept in ESP32 NVS. The device attempts a reading every 60 seconds when HR, SpO2, temperature, Wi-Fi, and UTC time are valid. Confirm successful uploads in Serial Monitor with `Ingestion response: HTTP 200`.
 
 ## Hardware notes
 
