@@ -38,6 +38,7 @@ uint32_t lastUploadMs = 0;
 uint32_t sequenceNumber = 0;
 uint32_t lastStatusMs = 0;
 uint32_t lastTemperatureRequestMs = 0;
+uint32_t lastWifiRetryMs = 0;
 int32_t heartRateBpm = -1;
 int32_t spo2Percent = -1;
 bool heartRateValid = false;
@@ -84,6 +85,31 @@ bool getIsoUtc(char *output, size_t outputSize) {
 void connectWifi() {
   if (strlen(WIFI_SSID) == 0) return;
   WiFi.mode(WIFI_STA);
+  WiFi.onEvent([](arduino_event_id_t event, arduino_event_info_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      Serial.printf("Wi-Fi disconnect reason=%u\n",
+                    static_cast<unsigned>(info.wifi_sta_disconnected.reason));
+    }
+  });
+  WiFi.setAutoReconnect(true);
+
+  const int16_t networkCount = WiFi.scanNetworks(false, true);
+  bool targetVisible = false;
+  int32_t targetRssi = -127;
+  int32_t targetChannel = 0;
+  for (int16_t i = 0; i < networkCount; i++) {
+    if (WiFi.SSID(i) == WIFI_SSID) {
+      targetVisible = true;
+      targetRssi = WiFi.RSSI(i);
+      targetChannel = WiFi.channel(i);
+      break;
+    }
+  }
+  Serial.printf("Wi-Fi scan: configured network %s; channel=%ld RSSI=%ld dBm\n",
+                targetVisible ? "visible" : "not visible",
+                static_cast<long>(targetChannel), static_cast<long>(targetRssi));
+  WiFi.scanDelete();
+
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
   Serial.print("Connecting to Wi-Fi");
   const uint32_t started = millis();
@@ -99,6 +125,7 @@ void connectWifi() {
   } else {
     Serial.println("Wi-Fi not connected; sensor display continues.");
   }
+  lastWifiRetryMs = millis();
 }
 
 uint8_t findDs18b20DataPin() {
@@ -354,7 +381,10 @@ void loop() {
     lastUploadMs = now;
   }
 
-  if (WiFi.status() != WL_CONNECTED && strlen(WIFI_SSID) > 0) {
+  if (WiFi.status() != WL_CONNECTED && strlen(WIFI_SSID) > 0 &&
+      now - lastWifiRetryMs >= 15000) {
+    lastWifiRetryMs = now;
+    Serial.println("Retrying Wi-Fi connection.");
     WiFi.reconnect();
   }
   delay(2);

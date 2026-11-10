@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import CareSharing from '@/app/components/care-sharing';
 
 type Reading = {
   id: string;
@@ -69,45 +70,77 @@ function formatTime(value: string) {
 }
 
 export default function Home() {
-  const [readings, setReadings] = useState<Reading[]>(demoReadings);
-  const [symptoms, setSymptoms] = useState<Symptom[]>(demoSymptoms);
+  const [readings, setReadings] = useState<Reading[]>(isSupabaseConfigured ? [] : demoReadings);
+  const [readingsLoading, setReadingsLoading] = useState(isSupabaseConfigured);
+  const [readingsError, setReadingsError] = useState('');
+  const [symptoms, setSymptoms] = useState<Symptom[]>(isSupabaseConfigured ? [] : demoSymptoms);
   const [symptom, setSymptom] = useState('');
   const [severity, setSeverity] = useState('3');
   const [notes, setNotes] = useState('');
   const [formMessage, setFormMessage] = useState('');
-  const [dataMode, setDataMode] = useState<'preview' | 'connected'>('preview');
-  const [deviceName, setDeviceName] = useState('SickleBand · Demo unit');
+  const [dataMode, setDataMode] = useState<'preview' | 'connected' | 'loading' | 'error'>(isSupabaseConfigured ? 'loading' : 'preview');
+  const [deviceName, setDeviceName] = useState(isSupabaseConfigured ? 'Checking for wearable' : 'SickleBand · Demo unit');
   const [lastSeen, setLastSeen] = useState('Not yet received');
   const [deviceSeen, setDeviceSeen] = useState(false);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const router = useRouter();
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      setReadings(demoReadings);
+      setSymptoms(demoSymptoms);
+      setReadingsLoading(false);
+      return;
+    }
 
     const supabase = createClient();
     supabaseRef.current = supabase;
     let active = true;
+    let firstLoad = true;
+    let requestInProgress = false;
 
     async function loadPatientData() {
-      const { data: userData } = await supabase.auth.getUser();
-      if (!active || !userData.user) return;
+      if (requestInProgress) return;
+      requestInProgress = true;
+      const { data: userData, error: userError } = await supabase.auth.getUser();
+      if (!active) return;
+      if (userError) {
+        setDataMode('error');
+        setReadings([]);
+        setSymptoms([]);
+        setReadingsError('Could not verify your account. No sample values are shown.');
+        setReadingsLoading(false);
+        requestInProgress = false;
+        return;
+      }
+      if (!userData.user) {
+        setDataMode('preview');
+        setReadings(demoReadings);
+        setSymptoms(demoSymptoms);
+        setReadingsError('');
+        setReadingsLoading(false);
+        requestInProgress = false;
+        return;
+      }
 
       setDataMode('connected');
+      if (firstLoad) {
+        setReadings([]);
+        setSymptoms([]);
+        setDeviceName('SickleCare wearable');
+        setLastSeen('Not yet received');
+        setDeviceSeen(false);
+        setReadingsLoading(true);
+        firstLoad = false;
+      }
       const [deviceResult, readingResult, symptomResult] = await Promise.all([
         supabase.from('devices').select('device_name, last_seen_at').order('created_at', { ascending: true }).limit(1).maybeSingle(),
-        supabase.from('readings').select('id, recorded_at, hr_bpm, spo2_pct, skin_temp_c, signal_ok, is_simulated').order('recorded_at', { ascending: false }).limit(12),
+        supabase.from('readings').select('id, recorded_at, hr_bpm, spo2_pct, skin_temp_c, signal_ok, is_simulated').eq('is_simulated', false).order('recorded_at', { ascending: false }).limit(12),
         supabase.from('symptom_logs').select('id, symptom, severity, notes, recorded_at').order('recorded_at', { ascending: false }).limit(8),
       ]);
 
       if (!active) return;
-      if (deviceResult.data) {
-        setDeviceName(deviceResult.data.device_name);
-        if (deviceResult.data.last_seen_at) {
-          setLastSeen(formatTime(deviceResult.data.last_seen_at));
-          setDeviceSeen(true);
-        }
-      }
+      if (deviceResult.data) setDeviceName(deviceResult.data.device_name);
       const fetchedReadings = (readingResult.data ?? []).map((row: { id: string; recorded_at: string; hr_bpm: number; spo2_pct: number; skin_temp_c: number; signal_ok: boolean; is_simulated: boolean }) => ({
           id: row.id,
           recordedAt: row.recorded_at,
@@ -118,7 +151,16 @@ export default function Home() {
           signalOk: row.signal_ok,
           isSimulated: row.is_simulated,
         }));
-      setReadings(fetchedReadings.length ? fetchedReadings : demoReadings);
+      setReadings(fetchedReadings);
+      setReadingsError(readingResult.error ? 'Could not load real readings. Try refreshing this page.' : '');
+      const lastDataTime = deviceResult.data?.last_seen_at || fetchedReadings[0]?.recordedAt;
+      if (lastDataTime) {
+        setLastSeen(formatTime(lastDataTime));
+        setDeviceSeen(true);
+      } else {
+        setLastSeen('Not yet received');
+        setDeviceSeen(false);
+      }
       setSymptoms((symptomResult.data ?? []).map((row: { id: string; symptom: string; severity: number; notes: string | null; recorded_at: string }) => ({
           id: row.id,
           symptom: row.symptom,
@@ -126,25 +168,62 @@ export default function Home() {
           notes: row.notes ?? '',
           recordedAt: formatTime(row.recorded_at),
         })));
+      setReadingsLoading(false);
+      requestInProgress = false;
     }
 
-    void loadPatientData();
+    function refreshPatientData() {
+      void loadPatientData().catch(() => {
+        requestInProgress = false;
+        if (!active) return;
+        setDataMode('error');
+        setReadings([]);
+        setSymptoms([]);
+        setReadingsError('Could not reach Supabase. No sample values are shown.');
+        setReadingsLoading(false);
+      });
+    }
+
+    refreshPatientData();
+    const refreshTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') refreshPatientData();
+    }, 15000);
     return () => {
       active = false;
+      window.clearInterval(refreshTimer);
     };
   }, []);
 
-  const latest = readings[0];
+  const latest = readings[0] ?? {
+    id: 'no-reading',
+    recordedAt: '',
+    timeLabel: '',
+    hr: Number.NaN,
+    spo2: Number.NaN,
+    temp: Number.NaN,
+    signalOk: false,
+    isSimulated: false,
+  };
   const hasSimulatedReadings = readings.some((reading) => reading.isSimulated);
   const hasDeviceReadings = readings.some((reading) => !reading.isSimulated);
-  const readingSourceLabel = dataMode === 'preview' || !hasDeviceReadings
+  const readingSourceLabel = dataMode === 'preview'
     ? 'Simulated data'
-    : hasSimulatedReadings
-      ? 'Device and simulated readings'
-      : 'Device readings';
-  const readingDisclaimer = hasDeviceReadings
-    ? 'This prototype is informational only. Sensor readings are estimates, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.'
-    : 'This prototype is informational only. Sample readings are simulated, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.';
+    : dataMode === 'error'
+      ? 'Connection issue'
+    : readingsError
+      ? 'Readings unavailable'
+      : hasDeviceReadings
+        ? hasSimulatedReadings ? 'Device and simulated readings' : 'Live device readings'
+        : readingsLoading || dataMode === 'loading' ? 'Checking live data' : 'Waiting for live readings';
+  const readingDisclaimer = dataMode === 'preview'
+    ? 'This prototype is informational only. Sample readings are simulated, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.'
+    : readingsError
+      ? `${readingsError} No sample values are shown until real data can be confirmed.`
+      : hasDeviceReadings
+        ? 'This prototype is informational only. Sensor readings are estimates, are not clinically validated, and do not diagnose, predict crises, or replace advice from a qualified health professional.'
+        : readingsLoading
+          ? 'Loading readings from Supabase. Demo values are hidden while your account is connected.'
+          : 'No real device readings are linked to this account yet. If you are a clinician, open the clinician portal; otherwise sign in with the patient account assigned to the wearable.';
   const qualityReadings = useMemo(() => readings.filter((reading) => reading.signalOk), [readings]);
   const chartMaximum = Math.max(...qualityReadings.map((reading) => reading.hr), 80);
 
@@ -184,6 +263,13 @@ export default function Home() {
 
   async function handleSignOut() {
     if (supabaseRef.current) await supabaseRef.current.auth.signOut();
+    setDataMode('preview');
+    setReadings(demoReadings);
+    setSymptoms(demoSymptoms);
+    setReadingsError('');
+    setReadingsLoading(false);
+    setDeviceSeen(false);
+    setLastSeen('Not yet received');
     router.push('/');
   }
 
@@ -196,7 +282,8 @@ export default function Home() {
             <span><span className="block text-[15px] font-bold tracking-tight text-[#123f4a]">SickleCare</span><span className="block text-[11px] font-medium uppercase tracking-[0.18em] text-slate-400">Patient companion</span></span>
           </Link>
           <div className="flex items-center gap-3">
-            <span className={`hidden items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold sm:flex ${dataMode === 'connected' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}><span className={`h-2 w-2 rounded-full ${dataMode === 'connected' ? 'bg-emerald-500' : 'bg-amber-500'}`} />{dataMode === 'connected' ? 'Account connected' : 'Preview mode'}</span>
+            <Link href="/doctor" className="hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950 sm:inline-flex">Clinician portal</Link>
+            <span className={`hidden items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold sm:flex ${dataMode === 'connected' ? 'bg-emerald-50 text-emerald-700' : dataMode === 'preview' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}><span className={`h-2 w-2 rounded-full ${dataMode === 'connected' ? 'bg-emerald-500' : dataMode === 'preview' ? 'bg-amber-500' : 'bg-slate-400'}`} />{dataMode === 'connected' ? 'Account connected' : dataMode === 'preview' ? 'Preview mode' : dataMode === 'error' ? 'Connection issue' : 'Checking account'}</span>
             {dataMode === 'connected' ? <button onClick={handleSignOut} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:text-slate-950" type="button"><Icon name="logout" className="h-4 w-4" /><span className="hidden sm:inline">Sign out</span></button> : <Link href="/login" className="flex items-center gap-2 rounded-xl bg-[#123f4a] px-3 py-2 text-sm font-semibold text-white transition hover:bg-[#0b3038]"><Icon name="user" className="h-4 w-4" /><span>Sign in</span></Link>}
           </div>
         </div>
@@ -223,6 +310,7 @@ export default function Home() {
           </div>
 
           <aside className="space-y-6"><section className="overflow-hidden rounded-3xl bg-[#123f4a] p-6 text-white shadow-[0_18px_50px_rgba(18,63,74,0.2)]"><div className="flex items-start justify-between"><span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/10 text-[#a6ded3]"><Icon name="device" className="h-5 w-5" /></span><span className="flex items-center gap-2 rounded-full bg-[#a6ded3]/15 px-3 py-1.5 text-xs font-bold text-[#bde9e1]"><span className={`h-1.5 w-1.5 rounded-full ${deviceSeen ? 'bg-[#7fdbc9]' : 'bg-amber-300'}`} />{deviceSeen ? 'Data received' : dataMode === 'preview' ? 'Preview only' : 'Awaiting data'}</span></div><p className="mt-7 text-xs font-bold uppercase tracking-[0.16em] text-[#8ab8b0]">Your wearable</p><h2 className="mt-2 text-xl font-bold">{deviceName}</h2><p className="mt-1 text-sm text-[#a5c7c2]">ESP32-WROOM-32D · Wi-Fi</p><div className="mt-7 flex items-center justify-between border-t border-white/10 pt-4 text-sm"><span className="text-[#a5c7c2]">Last data received</span><span className="font-semibold text-white">{lastSeen}</span></div><div className="mt-5 flex items-center gap-2 text-xs text-[#a5c7c2]"><Icon name="check" className="h-4 w-4 text-[#7fdbc9]" />Device status is informational only</div></section>
+            <CareSharing enabled={dataMode === 'connected'} />
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_12px_45px_rgba(15,23,42,0.04)]"><div className="flex items-center justify-between"><div><h2 className="text-lg font-bold text-slate-900">Symptom history</h2><p className="mt-1 text-sm text-slate-500">Your latest check-ins</p></div><Icon name="note" className="h-5 w-5 text-slate-300" /></div><div className="mt-5 space-y-4">{symptoms.slice(0, 4).map((item) => <div className="flex gap-3" key={item.id}><span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#e9a94f] ring-4 ring-[#fff4e5]" /><div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><p className="font-semibold text-slate-800">{item.symptom}</p><span className="shrink-0 text-xs font-semibold text-slate-400">{item.recordedAt}</span></div><p className="mt-1 text-xs text-slate-500">Intensity {item.severity}/10{item.notes ? ` · ${item.notes}` : ''}</p></div></div>)}</div>{symptoms.length === 0 && <p className="mt-5 text-sm text-slate-400">Your saved check-ins will appear here.</p>}</section>
             <section className="rounded-3xl border border-[#f0e4d3] bg-[#fffaf3] p-6"><div className="flex gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white text-[#b76a15] shadow-sm"><Icon name="sparkle" className="h-4 w-4" /></span><div><h2 className="font-bold text-[#7e501b]">A useful record</h2><p className="mt-2 text-sm leading-6 text-[#9b7547]">Keeping symptoms alongside readings can help you describe your day more clearly during a conversation with your care team.</p></div></div></section></aside>
         </div>
@@ -233,6 +321,7 @@ export default function Home() {
 }
 
 function MetricCard({ label, value, unit, helper, tone, icon }: { label: string; value: string; unit: string; helper: string; tone: 'rose' | 'blue' | 'amber'; icon: 'heart' | 'signal' | 'thermometer' }) {
+  const hasValue = Number.isFinite(Number(value));
   const tones = { rose: 'bg-[#fff0f2] text-[#c35e6f]', blue: 'bg-[#eef5ff] text-[#4f78b8]', amber: 'bg-[#fff5e7] text-[#bd741d]' };
-  return <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_45px_rgba(15,23,42,0.04)]"><div className="flex items-start justify-between"><p className="text-sm font-semibold text-slate-500">{label}</p><span className={`flex h-9 w-9 items-center justify-center rounded-xl ${tones[tone]}`}><Icon name={icon} className="h-4 w-4" /></span></div><div className="mt-5 flex items-baseline gap-2"><span className="text-4xl font-bold tracking-[-0.05em] text-slate-900">{value}</span><span className="text-sm font-semibold text-slate-400">{unit}</span></div><p className="mt-2 text-xs text-slate-400">{helper}</p></article>;
+  return <article className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_12px_45px_rgba(15,23,42,0.04)]"><div className="flex items-start justify-between"><p className="text-sm font-semibold text-slate-500">{label}</p><span className={`flex h-9 w-9 items-center justify-center rounded-xl ${tones[tone]}`}><Icon name={icon} className="h-4 w-4" /></span></div><div className="mt-5 flex items-baseline gap-2"><span className="text-4xl font-bold tracking-[-0.05em] text-slate-900">{hasValue ? value : '—'}</span>{hasValue && <span className="text-sm font-semibold text-slate-400">{unit}</span>}</div><p className="mt-2 text-xs text-slate-400">{hasValue ? helper : 'Waiting for a real reading'}</p></article>;
 }

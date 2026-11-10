@@ -31,17 +31,32 @@ function Set-QuotedDefine {
   $escaped = ConvertTo-CStringContents $Value
   $pattern = '^\s*#define\s+' + [regex]::Escape($Name) + '\s+'
   $lines = [System.Collections.Generic.List[string]]::new()
-  $matches = 0
+  $matchCount = 0
   foreach ($line in ($Content -split "`r?`n")) {
     if ($line -match $pattern) {
       $lines.Add('#define ' + $Name + ' "' + $escaped + '"')
-      $matches++
+      $matchCount++
     } else {
       $lines.Add($line)
     }
   }
-  if ($matches -ne 1) { throw "Expected exactly one #define $Name in local secrets.h." }
+  if ($matchCount -ne 1) { throw "Expected exactly one #define $Name in local secrets.h." }
   return ($lines -join [Environment]::NewLine).TrimEnd() + [Environment]::NewLine
+}
+
+function Invoke-SupabaseCaptured {
+  param([string[]]$Arguments)
+  $previousPreference = $ErrorActionPreference
+  try {
+    # Windows PowerShell turns Supabase's informational stderr output into
+    # terminating NativeCommandError records when the script uses Stop.
+    $ErrorActionPreference = 'Continue'
+    $output = (& supabase @Arguments 2>&1 | Out-String)
+    $exitCode = $LASTEXITCODE
+    return [pscustomobject]@{ Output = $output; ExitCode = $exitCode }
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
 }
 
 foreach ($command in @('arduino-cli', 'supabase')) {
@@ -90,8 +105,9 @@ if (-not [Guid]::TryParse($patientInput, [ref]$patientGuid)) { throw 'Enter the 
 $patientId = $patientGuid.ToString()
 
 $userSql = "select count(*) as user_count from auth.users where id = '$patientId'::uuid"
-$userCheck = (& supabase db query --remote --read-only $userSql 2>&1 | Out-String)
-if ($LASTEXITCODE -ne 0) { throw 'Could not verify the patient account in Supabase. Check that the Supabase CLI is linked and signed in.' }
+$userResult = Invoke-SupabaseCaptured @('db', 'query', '--remote', '--read-only', $userSql)
+if ($userResult.ExitCode -ne 0) { throw 'Could not verify the patient account in Supabase. Check that the Supabase CLI is linked and signed in.' }
+$userCheck = $userResult.Output
 $userCountMatch = [regex]::Match($userCheck, '"user_count"\s*:\s*(\d+)')
 if (-not $userCountMatch.Success -or [int]$userCountMatch.Groups[1].Value -lt 1) {
   throw 'That UUID is not present in Supabase Auth. Check the patient UUID and try again.'
@@ -107,8 +123,8 @@ $buildPath = Join-Path $env:TEMP ('sicklecare-esp32-build-' + [Guid]::NewGuid().
 try {
   $readySql = $provisionSql.Replace('REPLACE-WITH-PATIENT-AUTH-USER-UUID', $patientId)
   [System.IO.File]::WriteAllText($temporarySql, $readySql, [System.Text.UTF8Encoding]::new($false))
-  & supabase db query --remote --file $temporarySql --yes | Out-Null
-  if ($LASTEXITCODE -ne 0) { throw 'Supabase device provisioning failed; the device has not been flashed.' }
+  $provisionResult = Invoke-SupabaseCaptured @('db', 'query', '--remote', '--file', $temporarySql, '--yes')
+  if ($provisionResult.ExitCode -ne 0) { throw 'Supabase device provisioning failed; the device has not been flashed.' }
   Write-Host 'Supabase device record provisioned.'
 
   & arduino-cli compile --quiet --fqbn $fqbn --output-dir $buildPath $firmwareDir | Out-Null
