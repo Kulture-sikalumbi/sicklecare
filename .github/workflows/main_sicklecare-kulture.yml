@@ -88,11 +88,17 @@ jobs:
         echo "Configured Azure runtime: ${runtime}"
         az webapp restart --name sicklecare-kulture --resource-group "$resource_group"
 
+    - name: Capture Azure startup logs
+      run: |
+        resource_group="$(az webapp list --query "[?name=='sicklecare-kulture'] | [0].resourceGroup" --output tsv)"
+        az webapp log config --name sicklecare-kulture --resource-group "$resource_group" --docker-container-logging filesystem --level Verbose
+        timeout 20s az webapp log tail --name sicklecare-kulture --resource-group "$resource_group" || true
+
     - name: Verify deployed Tailwind CSS
       run: |
         for attempt in $(seq 1 12); do
-          css_path="$(curl -fsSL 'https://sicklecare-kulture.azurewebsites.net/' | grep -oE '/_next/static/css/[^" ]+\.css' | head -n 1 || true)"
-          if [ -n "$css_path" ] && curl -fsSL "https://sicklecare-kulture.azurewebsites.net${css_path}?verify=${GITHUB_SHA}" | grep -Eq '[.]flex[{][^}]*display:flex'; then
+          css_path="$(curl -fsSL --max-time 8 'https://sicklecare-kulture.azurewebsites.net/' | grep -oE '/_next/static/css/[^" ]+\.css' | head -n 1 || true)"
+          if [ -n "$css_path" ] && curl -fsSL --max-time 8 "https://sicklecare-kulture.azurewebsites.net${css_path}?verify=${GITHUB_SHA}" | grep -Eq '[.]flex[{][^}]*display:flex'; then
             echo "Azure is serving the Tailwind CSS bundle: ${css_path}"
             exit 0
           fi
