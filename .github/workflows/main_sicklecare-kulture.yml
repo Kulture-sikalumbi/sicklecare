@@ -41,7 +41,10 @@ jobs:
         fi
         npm prune --omit=dev
         mkdir deploy
-        cp -a .next node_modules package.json next.config.ts public deploy/
+        cp -a .next/standalone/. deploy/
+        mkdir -p deploy/.next
+        cp -a .next/static deploy/.next/
+        cp -a public deploy/public
         python3 - <<'PY'
         from pathlib import Path
         from zipfile import ZIP_DEFLATED, ZipFile
@@ -52,6 +55,7 @@ jobs:
                 if path.is_file():
                     archive.write(path, path.relative_to(root).as_posix())
         PY
+        unzip -Z1 release.zip | grep -Fxq 'server.js'
         unzip -Z1 release.zip | grep -Fxq 'package.json'
         unzip -Z1 release.zip | grep -Eq '^\.next/static/css/[^/]+\.css$'
 
@@ -67,7 +71,7 @@ jobs:
       with:
         app-name: 'sicklecare-kulture'
         package: ./release.zip
-        startup-command: 'npm start -- --hostname 0.0.0.0 --port ${PORT:-8080}'
+        startup-command: 'PORT=${PORT:-8080} HOSTNAME=0.0.0.0 node server.js'
 
     - name: Configure Node runtime and restart Azure Web App
       run: |
