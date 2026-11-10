@@ -42,6 +42,18 @@ jobs:
         npm prune --omit=dev
         mkdir deploy
         cp -a .next node_modules package.json next.config.ts public deploy/
+        python3 - <<'PY'
+        from pathlib import Path
+        from zipfile import ZIP_DEFLATED, ZipFile
+
+        root = Path("deploy")
+        with ZipFile("release.zip", "w", ZIP_DEFLATED) as archive:
+            for path in root.rglob("*"):
+                if path.is_file():
+                    archive.write(path, path.relative_to(root).as_posix())
+        PY
+        unzip -Z1 release.zip | grep -Fxq 'package.json'
+        unzip -Z1 release.zip | grep -Eq '^\.next/static/css/[^/]+\.css$'
 
     - name: Login to Azure with GitHub OIDC
       uses: azure/login@v2
@@ -54,7 +66,8 @@ jobs:
       uses: azure/webapps-deploy@v3
       with:
         app-name: 'sicklecare-kulture'
-        package: ./deploy
+        package: ./release.zip
+        startup-command: 'npm start'
 
     - name: Restart Azure Web App
       run: |
