@@ -69,13 +69,23 @@ jobs:
         package: ./release.zip
         startup-command: 'npm start'
 
-    - name: Restart Azure Web App
+    - name: Configure Node runtime and restart Azure Web App
       run: |
         resource_group="$(az webapp list --query "[?name=='sicklecare-kulture'] | [0].resourceGroup" --output tsv)"
         if [ -z "$resource_group" ]; then
           echo "Could not find the Azure Web App resource group."
           exit 1
         fi
+        is_linux="$(az webapp show --name sicklecare-kulture --resource-group "$resource_group" --query reserved --output tsv)"
+        if [ "$is_linux" = "true" ]; then
+          az webapp config set --name sicklecare-kulture --resource-group "$resource_group" --linux-fx-version 'NODE|24-lts'
+          runtime="$(az webapp config show --name sicklecare-kulture --resource-group "$resource_group" --query linuxFxVersion --output tsv)"
+        else
+          az webapp config set --name sicklecare-kulture --resource-group "$resource_group" --use-32bit-worker-process false
+          az webapp config appsettings set --name sicklecare-kulture --resource-group "$resource_group" --settings WEBSITE_NODE_DEFAULT_VERSION='~24' --output none
+          runtime="Windows Node $(az webapp config appsettings list --name sicklecare-kulture --resource-group "$resource_group" --query "[?name=='WEBSITE_NODE_DEFAULT_VERSION'].value | [0]" --output tsv)"
+        fi
+        echo "Configured Azure runtime: ${runtime}"
         az webapp restart --name sicklecare-kulture --resource-group "$resource_group"
 
     - name: Verify deployed Tailwind CSS
