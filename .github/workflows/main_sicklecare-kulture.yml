@@ -90,6 +90,8 @@ jobs:
           runtime="Windows Node $(az webapp config appsettings list --name sicklecare-kulture --resource-group "$resource_group" --query "[?name=='WEBSITE_NODE_DEFAULT_VERSION'].value | [0]" --output tsv)"
         fi
         echo "Configured Azure runtime: ${runtime}"
+        az webapp config appsettings set --name sicklecare-kulture --resource-group "$resource_group" --settings WEBSITE_RUN_FROM_PACKAGE='0' --output none
+        echo "Configured Azure to serve the extracted deployment package."
         az webapp restart --name sicklecare-kulture --resource-group "$resource_group"
 
     - name: Capture Azure startup logs
